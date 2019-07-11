@@ -1,0 +1,169 @@
+---
+title: "DATA612 Project 5"
+author: "Michael O'Donnell"
+date: "July 8, 2019"
+output: html_document
+---
+
+# Overview:
+In the following R code, IBCF system is applied to MovieLense data
+
+### import libraries
+```{r warning=FALSE}
+library(recommenderlab)
+library(ggplot2)
+library(recosystem)
+set.seed(1)
+library(devtools)
+install_github(repo = "tarashnot/SlopeOne", username = "tarashnot")
+install_github(repo = "tarashnot/SVDApproximation", username = "tarashnot")
+```
+
+### import the MovieLense data
+```{r}
+data(MovieLense)
+MovieLense
+```
+
+### View the size of the MovieLense data
+```{r}
+object.size(MovieLense)
+object.size(as(MovieLense, "matrix"))
+```
+
+### converting the matrix into vector to see values
+```{r}
+vector_ratings <- as.vector(MovieLense@data)
+unique(vector_ratings)
+table(vector_ratings)
+```
+
+### removing the null values and turning vector into factors
+```{r}
+vector_ratings <- vector_ratings[vector_ratings != 0]
+vector_ratings <- factor(vector_ratings)
+
+qplot(vector_ratings)
+```
+
+### calculating and visualizing which movies have been viewed
+```{r}
+views_per_movie <- colCounts(MovieLense)
+
+table_views <- data.frame(
+  movie = names(views_per_movie),
+  views = views_per_movie
+)
+
+table_views <- table_views[order(table_views$views,
+                                 decreasing = TRUE), ]
+
+ggplot(table_views[1:6, ], aes(x=movie, y=views)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Number of Views of Top 6 Movies")
+```
+
+### visualizing the average movie score
+```{r}
+average_ratings <- colMeans(MovieLense)
+
+qplot(average_ratings) +
+  stat_bin(bins = 10) +
+  ggtitle("Average movie rating")
+```
+
+### view the average ratings of only movies with 100 views minimum
+```{r}
+average_ratings_min100 <- average_ratings[views_per_movie >= 100]
+
+qplot(average_ratings_min100) +
+  stat_bin(bins = 10) +
+  ggtitle("Average movie rating (minimum 100)")
+```
+
+### selecting only data with enough ratings and power users
+```{r}
+# greater than 100 views
+# only accounting for users that have rated at least 50 movies
+ratings_movies <- MovieLense[rowCounts(MovieLense) > 50,
+                             colCounts(MovieLense) > 100]
+ratings_movies
+
+#average ratings per user
+avg_ratings_user <- rowMeans(ratings_movies)
+```
+
+### normalize the user ratings to zero
+```{r}
+ratings_movies_normalize <- normalize(ratings_movies)
+```
+
+### splitting the data into training and testing sets
+```{r}
+which_train <- sample(x = c(TRUE, FALSE), size = nrow(ratings_movies),
+                      replace = TRUE, prob = c(0.8, 0.2))
+
+train <- ratings_movies[which_train, ]
+test <- ratings_movies[!which_train, ]
+```
+
+### use k-fold to split the users into 5 groups
+```{r}
+which_set <- sample(x = 1:5, size=nrow(ratings_movies),
+                    replace = TRUE)
+for(i in 1:5) {
+  which_train <- which_set == i
+  train <- ratings_movies[which_train, ]
+  test <- ratings_movies[!which_train, ]
+}
+```
+
+### establishing the Item Based Collaborative Filtering recommender model
+```{r}
+model <- Recommender(data = train, method = "IBCF",
+                     parameter = list(k=30))
+model
+```
+
+### apply model onto the test set (IBCF model)
+```{r}
+# number of items to recommend
+n_recommend <- 5
+
+predicted <- predict(object = model, newdata = test, n = n_recommend)
+predicted
+```
+
+### see the list of recommended movies for the first test user (IBCF model)
+```{r}
+test_user_one <- predicted@items[[1]]
+test_movies_one <- predicted@itemLabels[test_user_one]
+test_movies_one
+```
+
+### now, recommend movies for each user in the test set (IBCF model)
+```{r}
+recommender_matrix <- sapply(predicted@items, function(x){
+  colnames(ratings_movies)[x]
+})
+
+recommender_matrix[, 2:4]
+```
+
+### Now, to view the most frequently recommended movies (IBCF model)
+```{r}
+items <- factor(table(recommender_matrix))
+items <- sort(items, decreasing = TRUE)
+top_items <- data.frame(names(items), items)
+head(top_items)
+```
+
+### We've implemented a IBCF model locally
+
+# Now, to view the databricks movie recommendor:
+# https://databricks-prod-cloudfront.cloud.databricks.com/public/4027ec902e239c93eaaa8714f173bcfc/95787350597190/4111712431293706/4952278086090723/latest.html
+
+# Summary
+
+To summarize, it was amazing how much more data the distributed recommender system could handle. 20 Million rows with ease! In the future, if I had a dataset of more than 1 million rows I would consider databricks rather than a local recommender system.
